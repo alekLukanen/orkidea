@@ -1,2 +1,2 @@
-# orkidea
-A high-performance, event-based workflow engine built for transactional systems
+# Orkidea
+A high-performance, event-based workflow engine built for transactional systems.
