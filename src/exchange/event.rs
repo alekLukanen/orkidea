@@ -1,0 +1,43 @@
+
+
+pub struct Attribute {
+    name: String,
+    value: String,
+}
+
+impl Attribute {
+    pub fn new(name: String, value: String) -> Attribute {
+        Attribute {
+            name, value
+        }
+    }
+}
+
+pub enum EventStatus {
+    Queued,
+    Running,
+    Complete,
+    Errored,
+}
+
+pub struct Event {
+    id: u64,
+    data: Vec<u8>,
+    attributes: Vec<Attribute>,
+    status: EventStatus,
+}
+
+impl Event {
+    pub fn new(id: u64, data: Vec<u8>, attributes: Vec<Attribute>) -> Event {
+        Event {
+            id, 
+            data, 
+            attributes,
+            status: EventStatus:Queued,
+        }
+    }
+
+    pub fn set_status(&self, status: EventStatus) {
+        self.status = status;
+    }
+}
