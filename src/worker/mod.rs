@@ -1,3 +1,1 @@
-mod worker;
-
-pub use worker::Worker;
+pub mod worker;

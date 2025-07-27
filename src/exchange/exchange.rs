@@ -95,14 +95,14 @@ impl Exchange {
             }
 
             for command in command_trigger.get_commands() {
-                self.apply_command(command)?;
+                self.execute_command(command)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn apply_command(&mut self, command: &Command) -> Result<()> {
+    pub fn execute_command(&mut self, command: &Command) -> Result<()> {
         match command {
             Command::AddEvent { queue_name, event } => {
                 let queue = if let Some(queue) = self.queues.get(queue_name) {
@@ -115,12 +115,32 @@ impl Exchange {
                     .map_err(|_| ExchangeError::LockError)?
                     .add_event(event.clone());
             }
-            Command::AddEvents { queue_name, events } => {}
+            Command::AddEvents { queue_name, events } => {
+                let queue = if let Some(queue) = self.queues.get(queue_name) {
+                    queue
+                } else {
+                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
+                };
+                let mut queue = queue.lock().map_err(|_| ExchangeError::LockError)?;
+                for event in events {
+                    queue.add_event(event.clone());
+                }
+            }
             Command::UpdateEventStatus {
                 queue_name,
                 event_id,
                 status,
-            } => {}
+            } => {
+                let queue = if let Some(queue) = self.queues.get(queue_name) {
+                    queue
+                } else {
+                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
+                };
+                queue
+                    .lock()
+                    .map_err(|_| ExchangeError::LockError)?
+                    .update_event_status(event_id, status.clone())?;
+            }
         }
 
         Ok(())
