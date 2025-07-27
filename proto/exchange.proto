@@ -1,0 +1,44 @@
+syntax = "proto3";
+package exchange;
+
+service Exchange {
+  rpc AddEvent (AddEventReq) returns (AddEventResp);
+}
+
+message AddEventReq {
+  bytes data = 1;
+  repeated Attribute attributes = 2;
+}
+
+message AddEventResp {
+  uint64 id = 1;
+}
+
+message Attribute {
+  string name = 1;
+  string value = 2;
+}
+
+message Status {
+  oneof data_type {
+    Queued queued = 1;
+    Running running = 2;
+    Complete complete = 3;
+    Errored errored = 4;
+    MissedHeartbeat missed_heartbeat = 5;
+    Timedout timedout = 6;
+  }
+}
+
+message Queued {}
+
+message Running {}
+
+message Complete {}
+
+message Errored {}
+
+message MissedHeartbeat {}
+
+message Timedout {}
+

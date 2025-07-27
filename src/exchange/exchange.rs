@@ -2,11 +2,19 @@ use anyhow::Result;
 use std::collections;
 use std::sync::{Mutex, atomic};
 use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 use crate::exchange::queue::Queue;
 
 use super::event::EventStatus;
-use super::transaction::{Command, CommandTrigger, Transaction};
+use super::transaction::{Command, Transaction};
+
+pub struct ExchangeReq {
+    resp: oneshot::Sender<ExchangeResp>,
+}
+
+pub struct ExchangeResp {}
 
 #[derive(Debug, Error)]
 pub enum ExchangeError {
@@ -35,6 +43,15 @@ impl Exchange {
             transactions: Mutex::new(collections::HashMap::new()),
             transaction_idx: atomic::AtomicU64::new(0),
         }
+    }
+
+    pub fn run(
+        &mut self,
+        ct: CancellationToken,
+        mut receiver: mpsc::Receiver<ExchangeReq>,
+    ) -> Result<()> {
+        while let Some(msg) = receiver.blocking_recv() {}
+        Ok(())
     }
 
     pub fn add_queue(&mut self, queue: Queue) -> Result<()> {
