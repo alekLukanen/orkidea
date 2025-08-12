@@ -95,3 +95,9 @@ pub enum Command {
     },
 }
 
+#[derive(Debug)]
+pub enum CommandResp {
+    AddEvent { id: u64 },
+    AddEvents { ids: Vec<u64> },
+    UpdateEventStatus {},
+}

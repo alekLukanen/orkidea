@@ -4,17 +4,21 @@ use std::sync::{Mutex, atomic};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
 
 use crate::exchange::queue::Queue;
 
 use super::event::EventStatus;
-use super::transaction::{Command, Transaction};
+use super::transaction::{Command, CommandResp, Transaction};
 
 pub struct ExchangeReq {
+    command: Command,
     resp: oneshot::Sender<ExchangeResp>,
 }
 
-pub struct ExchangeResp {}
+pub struct ExchangeResp {
+    command_resp: CommandResp,
+}
 
 #[derive(Debug, Error)]
 pub enum ExchangeError {
@@ -45,16 +49,19 @@ impl Exchange {
         }
     }
 
-    pub fn run(
-        &mut self,
-        ct: CancellationToken,
-        mut receiver: mpsc::Receiver<ExchangeReq>,
-    ) -> Result<()> {
-        while let Some(msg) = receiver.blocking_recv() {}
+    pub fn run(&mut self, mut receiver: mpsc::Receiver<ExchangeReq>) -> Result<()> {
+        while let Some(msg) = receiver.blocking_recv() {
+            let resp = self.execute_command(&msg.command)?;
+            let res = msg.resp.send(ExchangeResp { command_resp: resp });
+            if let Err(_) = res {
+                error!("unabled to response message from exchange");
+            }
+        }
+        info!("exiting exchange event-loop");
         Ok(())
     }
 
-    pub fn add_queue(&mut self, queue: Queue) -> Result<()> {
+    fn add_queue(&mut self, queue: Queue) -> Result<()> {
         if let Some(_) = self.queues.get(&queue.name()) {
             return Err(ExchangeError::QueueAlreadyExistsForName(queue.name()).into());
         } else {
@@ -75,7 +82,7 @@ impl Exchange {
         Ok(trans_id)
     }
 
-    pub fn update_event_status(
+    fn update_event_status(
         &mut self,
         queue_name: &String,
         event_id: &u64,
@@ -119,7 +126,7 @@ impl Exchange {
         Ok(())
     }
 
-    pub fn execute_command(&mut self, command: &Command) -> Result<()> {
+    fn execute_command(&mut self, command: &Command) -> Result<CommandResp> {
         match command {
             Command::AddEvent { queue_name, event } => {
                 let queue = if let Some(queue) = self.queues.get(queue_name) {
@@ -127,10 +134,11 @@ impl Exchange {
                 } else {
                     return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
                 };
-                queue
+                let event_id = queue
                     .lock()
                     .map_err(|_| ExchangeError::LockError)?
                     .add_event(event.clone());
+                Ok(CommandResp::AddEvent { id: event_id })
             }
             Command::AddEvents { queue_name, events } => {
                 let queue = if let Some(queue) = self.queues.get(queue_name) {
@@ -138,10 +146,13 @@ impl Exchange {
                 } else {
                     return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
                 };
+
+                let event_ids: Vec<u64> = Vec::new();
                 let mut queue = queue.lock().map_err(|_| ExchangeError::LockError)?;
                 for event in events {
                     queue.add_event(event.clone());
                 }
+                Ok(CommandResp::AddEvents { ids: event_ids })
             }
             Command::UpdateEventStatus {
                 queue_name,
@@ -157,9 +168,8 @@ impl Exchange {
                     .lock()
                     .map_err(|_| ExchangeError::LockError)?
                     .update_event_status(event_id, status.clone())?;
+                Ok(CommandResp::UpdateEventStatus {})
             }
         }
-
-        Ok(())
     }
 }
