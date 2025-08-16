@@ -16,8 +16,21 @@ pub struct ExchangeReq {
     resp: oneshot::Sender<ExchangeResp>,
 }
 
+impl ExchangeReq {
+    pub fn new(command: Command) -> (ExchangeReq, oneshot::Receiver<ExchangeResp>) {
+        let (sender, receiver) = oneshot::channel();
+        (
+            ExchangeReq {
+                command,
+                resp: sender,
+            },
+            receiver,
+        )
+    }
+}
+
 pub struct ExchangeResp {
-    command_resp: CommandResp,
+    pub command_resp: CommandResp,
 }
 
 #[derive(Debug, Error)]
@@ -128,6 +141,11 @@ impl Exchange {
 
     fn execute_command(&mut self, command: &Command) -> Result<CommandResp> {
         match command {
+            Command::AddQueue { name } => {
+                let queue = Queue::new(name.clone());
+                self.add_queue(queue)?;
+                Ok(CommandResp::AddQueue {})
+            }
             Command::AddEvent { queue_name, event } => {
                 let queue = if let Some(queue) = self.queues.get(queue_name) {
                     queue

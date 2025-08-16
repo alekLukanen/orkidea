@@ -80,6 +80,9 @@ pub enum Trigger {
 
 #[derive(Debug)]
 pub enum Command {
+    AddQueue {
+        name: String,
+    },
     AddEvent {
         queue_name: String,
         event: Event,
@@ -97,6 +100,7 @@ pub enum Command {
 
 #[derive(Debug)]
 pub enum CommandResp {
+    AddQueue {},
     AddEvent { id: u64 },
     AddEvents { ids: Vec<u64> },
     UpdateEventStatus {},

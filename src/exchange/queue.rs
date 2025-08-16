@@ -32,8 +32,9 @@ impl Queue {
         self.name.clone()
     }
 
-    pub fn add_event(&mut self, event: Event) -> u64 {
+    pub fn add_event(&mut self, mut event: Event) -> u64 {
         let event_idx = self.event_idx;
+        event.set_id(event_idx);
         self.events.insert(event_idx, event);
         self.event_idx += 1;
         event_idx
@@ -70,4 +71,3 @@ impl Queue {
         }
     }
 }
-

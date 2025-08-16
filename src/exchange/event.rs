@@ -38,6 +38,10 @@ impl Event {
         }
     }
 
+    pub fn set_id(&mut self, id: u64) {
+        self.id = id;
+    }
+
     pub fn set_status(&mut self, status: EventStatus) {
         self.status = status;
     }
