@@ -2,31 +2,89 @@ syntax = "proto3";
 package exchange;
 
 service Exchange {
-  rpc AddQueue (AddQueueReq) returns (AddQueueResp);  
-  rpc AddEvent (AddEventReq) returns (AddEventResp);
-
+  rpc ExecCommand (ExecCommandReq) returns (ExecCommandResp);
 }
 
-message AddQueueReq {
+message ExecCommandReq {
+  Command command = 1;
+}
+
+message ExecCommandResp {
+  CommandResp command_resp = 1;
+}
+
+// commands //////////////////////////
+message Command {
+  oneof command {
+    AddQueue add_queue = 1;
+    AddEvent add_event = 2;
+    AddEvents add_events = 3;
+    UpdateEventStatus update_event_status= 4;
+    CreateTransaction create_transaction = 5;
+  }
+}
+
+message AddQueue {
   string name = 1;
 }
 
-message AddQueueResp {}
-
-message AddEventReq {
+message AddEvent {
   string queue_name = 1;
   Event event = 2;
 }
+
+message AddEvents {
+  string queue_name = 1;
+  repeated Event event = 2;
+}
+
+message UpdateEventStatus {
+  string queue_name = 1;
+  uint64 event_id = 2;
+  Status status = 3;
+}
+
+message CreateTransaction {
+  uint64 event_id = 1;
+}
+
+//////////////////////////////////////
+
+// command responses /////////////////
+message CommandResp {
+  oneof command_resp {
+    AddQueueResp add_queue_resp = 1;
+    AddEventResp add_event_resp = 2;
+    AddEventsResp add_events_resp = 3;
+    UpdateEventStatusResp update_event_status_resp = 4;
+    CreateTransactionResp create_transaction_resp = 5;
+  }
+}
+
+message AddQueueResp {}
 
 message AddEventResp {
   uint64 id = 1;
 }
 
+message AddEventsResp {
+  repeated uint64 ids = 1;
+}
+
+message UpdateEventStatusResp {}
+
+message CreateTransactionResp {
+  uint64 id = 1;
+}
+
+/////////////////////////////////////
+
+// shared entities //////////////////
 message Event {
   uint64 id = 1;
   bytes data = 2;
-  repeated Attribute attributes = 3;
-  string status = 4;
+  repeated Attribute attribute = 3;
+  Status status = 4;
 }
 
 message Attribute {
@@ -56,4 +114,6 @@ message Errored {}
 message MissedHeartbeat {}
 
 message Timedout {}
+
+///////////////////////////////////
 

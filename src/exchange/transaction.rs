@@ -1,4 +1,7 @@
-use crate::exchange::event::{Event, EventStatus};
+use crate::{
+    exchange::event::{Event, EventStatus},
+    rpc::proto::exchange::Command,
+};
 
 pub struct Transaction {
     id: u64,
@@ -76,32 +79,4 @@ pub enum Trigger {
     OnEventError(u64),
     OnEventMissedHeartbeat(u64),
     OnEventTimedout(u64),
-}
-
-#[derive(Debug)]
-pub enum Command {
-    AddQueue {
-        name: String,
-    },
-    AddEvent {
-        queue_name: String,
-        event: Event,
-    },
-    AddEvents {
-        queue_name: String,
-        events: Vec<Event>,
-    },
-    UpdateEventStatus {
-        queue_name: String,
-        event_id: u64,
-        status: EventStatus,
-    },
-}
-
-#[derive(Debug)]
-pub enum CommandResp {
-    AddQueue {},
-    AddEvent { id: u64 },
-    AddEvents { ids: Vec<u64> },
-    UpdateEventStatus {},
 }

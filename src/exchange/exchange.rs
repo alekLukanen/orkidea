@@ -3,13 +3,15 @@ use std::collections;
 use std::sync::{Mutex, atomic};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::exchange::queue::Queue;
+use crate::rpc::proto::exchange::{
+    AddEventResp, AddQueueResp, Command, CommandResp, command, command_resp,
+};
 
-use super::event::EventStatus;
-use super::transaction::{Command, CommandResp, Transaction};
+use super::event::{Event, EventStatus};
+use super::transaction::Transaction;
 
 pub struct ExchangeReq {
     command: Command,
@@ -43,6 +45,8 @@ pub enum ExchangeError {
     QueueNotFound(String),
     #[error("lock error")]
     LockError,
+    #[error("add event request missing event")]
+    AddEventRequestMissingEvent,
 }
 
 pub struct Exchange {
@@ -140,23 +144,33 @@ impl Exchange {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<CommandResp> {
-        match command {
-            Command::AddQueue { name } => {
-                let queue = Queue::new(name.clone());
+        match command.command {
+            Some(command::Command::AddQueue(obj)) => {
+                let queue = Queue::new(obj.name.clone());
                 self.add_queue(queue)?;
-                Ok(CommandResp::AddQueue {})
+                Ok(CommandResp {
+                    command_resp: Some(command_resp::CommandResp::AddQueueResp(AddQueueResp {})),
+                })
             }
-            Command::AddEvent { queue_name, event } => {
-                let queue = if let Some(queue) = self.queues.get(queue_name) {
+            Some(command::Command::AddEvent(obj)) => {
+                let queue = if let Some(queue) = self.queues.get(&obj.queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
                 };
+                let event = Event::try_from(
+                    obj.event
+                        .ok_or(ExchangeError::AddEventRequestMissingEvent.into())?,
+                )?;
                 let event_id = queue
                     .lock()
                     .map_err(|_| ExchangeError::LockError)?
-                    .add_event(event.clone());
-                Ok(CommandResp::AddEvent { id: event_id })
+                    .add_event(event);
+                Ok(CommandResp {
+                    command_resp: Some(command_resp::CommandResp::AddEventResp(AddEventResp {
+                        id: event_id,
+                    })),
+                })
             }
             Command::AddEvents { queue_name, events } => {
                 let queue = if let Some(queue) = self.queues.get(queue_name) {

@@ -2,9 +2,10 @@ use thiserror::Error;
 
 use crate::exchange::event::{Attribute, Event};
 use crate::exchange::exchange::ExchangeReq;
-use crate::exchange::transaction::{Command, CommandResp};
 use crate::rpc::proto::exchange::exchange_server::{Exchange, ExchangeServer};
-use crate::rpc::proto::exchange::{AddEventReq, AddEventResp, AddQueueReq, AddQueueResp};
+use crate::rpc::proto::exchange::{
+    AddEventReq, AddEventResp, AddQueueReq, AddQueueResp, Command, ExecCommandReq, ExecCommandResp,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::{Request, Response, Status, transport::Server};
@@ -33,6 +34,42 @@ impl ExchangeImpl {
 
 #[tonic::async_trait]
 impl Exchange for ExchangeImpl {
+    async fn execute_command(
+        &self,
+        request: Request<ExecCommandReq>,
+    ) -> Result<Response<ExecCommandResp>, Status> {
+        let msg = request.into_inner();
+
+        let (req, recv) = ExchangeReq::new(Command::AddQueue { name: msg.name });
+
+        if let Err(err) = self
+            .exchange_chan
+            .send_timeout(req, std::time::Duration::from_secs(10))
+            .await
+        {
+            return Err(Status::internal(
+                ExchangeError::UnableToSendRequestToInternalExchange(err.to_string()).to_string(),
+            ));
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), recv).await {
+            Ok(Ok(resp)) => match resp.command_resp {
+                CommandResp::AddQueue {} => Ok(Response::new(AddQueueResp {})),
+                _ => Err(Status::internal(
+                    ExchangeError::ExchangeResponseError("invalid response type".to_string())
+                        .to_string(),
+                )),
+            },
+            Ok(Err(err)) => Err(Status::internal(
+                ExchangeError::ExchangeResponseError(err.to_string()).to_string(),
+            )),
+            Err(_) => Err(Status::internal(
+                ExchangeError::ExchangeResponseError("timeout waiting for response".to_string())
+                    .to_string(),
+            )),
+        }
+    }
+
     async fn add_queue(
         &self,
         request: Request<AddQueueReq>,
