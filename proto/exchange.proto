@@ -19,7 +19,7 @@ message Command {
     AddQueue add_queue = 1;
     AddEvent add_event = 2;
     AddEvents add_events = 3;
-    UpdateEventStatus update_event_status= 4;
+    UpdateEventStatus update_event_status = 4;
     CreateTransaction create_transaction = 5;
   }
 }
@@ -35,7 +35,7 @@ message AddEvent {
 
 message AddEvents {
   string queue_name = 1;
-  repeated Event event = 2;
+  repeated Event events = 2;
 }
 
 message UpdateEventStatus {
@@ -45,7 +45,8 @@ message UpdateEventStatus {
 }
 
 message CreateTransaction {
-  uint64 event_id = 1;
+  string queue_name = 1;
+  uint64 event_id = 2;
 }
 
 //////////////////////////////////////
@@ -58,6 +59,7 @@ message CommandResp {
     AddEventsResp add_events_resp = 3;
     UpdateEventStatusResp update_event_status_resp = 4;
     CreateTransactionResp create_transaction_resp = 5;
+    ErrorResp error_resp = 6;
   }
 }
 
@@ -77,13 +79,17 @@ message CreateTransactionResp {
   uint64 id = 1;
 }
 
+message ErrorResp {
+  string error_msg = 1;
+}
+
 /////////////////////////////////////
 
 // shared entities //////////////////
 message Event {
   uint64 id = 1;
   bytes data = 2;
-  repeated Attribute attribute = 3;
+  repeated Attribute attributes = 3;
   Status status = 4;
 }
 

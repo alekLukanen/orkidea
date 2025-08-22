@@ -1,8 +1,6 @@
-use crate::{
-    exchange::event::{Event, EventStatus},
-    rpc::proto::exchange::Command,
-};
+use crate::{exchange::event::EventStatus, rpc::proto::exchange::Command};
 
+#[derive(Debug)]
 pub struct Transaction {
     id: u64,
     event_id: u64,

@@ -7,7 +7,8 @@ use tracing::{error, info};
 
 use crate::exchange::queue::Queue;
 use crate::rpc::proto::exchange::{
-    AddEventResp, AddQueueResp, Command, CommandResp, command, command_resp,
+    AddEventResp, AddEventsResp, AddQueueResp, Command, CommandResp, CreateTransactionResp,
+    ErrorResp, UpdateEventStatusResp, command, command_resp,
 };
 
 use super::event::{Event, EventStatus};
@@ -47,22 +48,20 @@ pub enum ExchangeError {
     LockError,
     #[error("add event request missing event")]
     AddEventRequestMissingEvent,
+    #[error("update event status missing status")]
+    UpdateEventStatusMissingStatus,
+    #[error("command not provided")]
+    CommandNotProvided,
 }
 
 pub struct Exchange {
-    queues: collections::HashMap<String, Mutex<Queue>>,
-
-    // indexed by event_id
-    transactions: Mutex<collections::HashMap<u64, Transaction>>,
-    transaction_idx: atomic::AtomicU64,
+    queues: collections::HashMap<String, Queue>,
 }
 
 impl Exchange {
     pub fn new() -> Exchange {
         Exchange {
             queues: collections::HashMap::new(),
-            transactions: Mutex::new(collections::HashMap::new()),
-            transaction_idx: atomic::AtomicU64::new(0),
         }
     }
 
@@ -71,7 +70,7 @@ impl Exchange {
             let resp = self.execute_command(&msg.command)?;
             let res = msg.resp.send(ExchangeResp { command_resp: resp });
             if let Err(_) = res {
-                error!("unabled to response message from exchange");
+                error!("unabled to send response message from exchange");
             }
         }
         info!("exiting exchange event-loop");
@@ -82,21 +81,9 @@ impl Exchange {
         if let Some(_) = self.queues.get(&queue.name()) {
             return Err(ExchangeError::QueueAlreadyExistsForName(queue.name()).into());
         } else {
-            self.queues.insert(queue.name(), Mutex::new(queue));
+            self.queues.insert(queue.name(), queue);
         }
         Ok(())
-    }
-
-    fn create_transaction(&self, event_id: u64) -> Result<u64> {
-        let trans_id = self.transaction_idx.fetch_add(1, atomic::Ordering::Relaxed);
-        self.transactions
-            .lock()
-            .map_err(|_| ExchangeError::LockError)?
-            .insert(
-                event_id.clone(),
-                Transaction::new(trans_id.clone(), event_id.clone()),
-            );
-        Ok(trans_id)
     }
 
     fn update_event_status(
@@ -105,29 +92,22 @@ impl Exchange {
         event_id: &u64,
         status: EventStatus,
     ) -> Result<()> {
-        // complete the event
-        let queue = if let Some(queue) = self.queues.get(queue_name) {
+        let queue = if let Some(queue) = self.queues.get_mut(queue_name) {
             queue
         } else {
             return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
         };
 
-        let _ = queue
-            .lock()
-            .map_err(|_| ExchangeError::LockError)?
-            .update_event_status(event_id, status.clone())?;
+        let (event, event_exists) = queue.update_event_status(event_id, status.clone());
 
-        // get the transaction and apply the trigger commands
-        // as a result of the event status change
-        let transaction = if let Some(transaction) = self
-            .transactions
-            .lock()
-            .map_err(|_| ExchangeError::LockError)?
-            .remove(event_id)
-        {
+        if !event_exists || event.is_none() {
+            return Ok(());
+        }
+
+        let transaction = if let Some(transaction) = queue.remove_transaction(event_id) {
             transaction
         } else {
-            return Err(ExchangeError::TransactionNotFound(event_id.clone()).into());
+            return Ok(());
         };
 
         for command_trigger in transaction.get_command_triggers() {
@@ -144,7 +124,7 @@ impl Exchange {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<CommandResp> {
-        match command.command {
+        match &command.command {
             Some(command::Command::AddQueue(obj)) => {
                 let queue = Queue::new(obj.name.clone());
                 self.add_queue(queue)?;
@@ -153,55 +133,73 @@ impl Exchange {
                 })
             }
             Some(command::Command::AddEvent(obj)) => {
-                let queue = if let Some(queue) = self.queues.get(&obj.queue_name) {
+                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
                     queue
                 } else {
                     return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
                 };
                 let event = Event::try_from(
                     obj.event
-                        .ok_or(ExchangeError::AddEventRequestMissingEvent.into())?,
+                        .clone()
+                        .ok_or(ExchangeError::AddEventRequestMissingEvent)?,
                 )?;
-                let event_id = queue
-                    .lock()
-                    .map_err(|_| ExchangeError::LockError)?
-                    .add_event(event);
+                let event_id = queue.add_event(event);
                 Ok(CommandResp {
                     command_resp: Some(command_resp::CommandResp::AddEventResp(AddEventResp {
                         id: event_id,
                     })),
                 })
             }
-            Command::AddEvents { queue_name, events } => {
-                let queue = if let Some(queue) = self.queues.get(queue_name) {
+            Some(command::Command::AddEvents(obj)) => {
+                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
                 };
 
+                let mut events: Vec<Event> = Vec::new();
+                for event in &obj.events {
+                    let event = Event::try_from(event.clone())?;
+                    events.push(event);
+                }
+
                 let event_ids: Vec<u64> = Vec::new();
-                let mut queue = queue.lock().map_err(|_| ExchangeError::LockError)?;
                 for event in events {
                     queue.add_event(event.clone());
                 }
-                Ok(CommandResp::AddEvents { ids: event_ids })
+
+                Ok(CommandResp {
+                    command_resp: Some(command_resp::CommandResp::AddEventsResp(AddEventsResp {
+                        ids: event_ids,
+                    })),
+                })
             }
-            Command::UpdateEventStatus {
-                queue_name,
-                event_id,
-                status,
-            } => {
-                let queue = if let Some(queue) = self.queues.get(queue_name) {
+            Some(command::Command::UpdateEventStatus(obj)) => {
+                let status = EventStatus::try_from(
+                    obj.status
+                        .ok_or(ExchangeError::UpdateEventStatusMissingStatus)?,
+                )?;
+                self.update_event_status(&obj.queue_name, &obj.event_id, status)?;
+                Ok(CommandResp {
+                    command_resp: Some(command_resp::CommandResp::UpdateEventStatusResp(
+                        UpdateEventStatusResp {},
+                    )),
+                })
+            }
+            Some(command::Command::CreateTransaction(obj)) => {
+                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
                 };
-                queue
-                    .lock()
-                    .map_err(|_| ExchangeError::LockError)?
-                    .update_event_status(event_id, status.clone())?;
-                Ok(CommandResp::UpdateEventStatus {})
+
+                Ok(CommandResp {
+                    command_resp: Some(command_resp::CommandResp::CreateTransactionResp(
+                        CreateTransactionResp { id: 0 },
+                    )),
+                })
             }
+            None => Err(ExchangeError::CommandNotProvided.into()),
         }
     }
 }

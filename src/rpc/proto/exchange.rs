@@ -48,7 +48,7 @@ pub struct AddEvents {
     #[prost(string, tag = "1")]
     pub queue_name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
-    pub event: ::prost::alloc::vec::Vec<Event>,
+    pub events: ::prost::alloc::vec::Vec<Event>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateEventStatus {
@@ -59,15 +59,17 @@ pub struct UpdateEventStatus {
     #[prost(message, optional, tag = "3")]
     pub status: ::core::option::Option<Status>,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateTransaction {
-    #[prost(uint64, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub queue_name: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "2")]
     pub event_id: u64,
 }
 /// command responses /////////////////
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandResp {
-    #[prost(oneof = "command_resp::CommandResp", tags = "1, 2, 3, 4, 5")]
+    #[prost(oneof = "command_resp::CommandResp", tags = "1, 2, 3, 4, 5, 6")]
     pub command_resp: ::core::option::Option<command_resp::CommandResp>,
 }
 /// Nested message and enum types in `CommandResp`.
@@ -84,6 +86,8 @@ pub mod command_resp {
         UpdateEventStatusResp(super::UpdateEventStatusResp),
         #[prost(message, tag = "5")]
         CreateTransactionResp(super::CreateTransactionResp),
+        #[prost(message, tag = "6")]
+        ErrorResp(super::ErrorResp),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -105,6 +109,11 @@ pub struct CreateTransactionResp {
     #[prost(uint64, tag = "1")]
     pub id: u64,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ErrorResp {
+    #[prost(string, tag = "1")]
+    pub error_msg: ::prost::alloc::string::String,
+}
 /// shared entities //////////////////
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Event {
@@ -113,7 +122,7 @@ pub struct Event {
     #[prost(bytes = "vec", tag = "2")]
     pub data: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, repeated, tag = "3")]
-    pub attribute: ::prost::alloc::vec::Vec<Attribute>,
+    pub attributes: ::prost::alloc::vec::Vec<Attribute>,
     #[prost(message, optional, tag = "4")]
     pub status: ::core::option::Option<Status>,
 }

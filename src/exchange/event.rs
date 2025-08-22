@@ -62,7 +62,7 @@ impl TryFrom<proto::exchange::Event> for Event {
         };
 
         let mut attributes: Vec<Attribute> = Vec::new();
-        for item in obj.attribute {
+        for item in obj.attributes {
             attributes.push(Attribute::try_from(item)?);
         }
 
