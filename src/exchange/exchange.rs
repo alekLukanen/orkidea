@@ -1,26 +1,24 @@
 use anyhow::Result;
 use std::collections;
-use std::sync::{Mutex, atomic};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
 
-use crate::exchange::queue::Queue;
-use crate::rpc::proto::exchange::{
-    AddEventResp, AddEventsResp, AddQueueResp, Command, CommandResp, CreateTransactionResp,
-    ErrorResp, UpdateEventStatusResp, command, command_resp,
-};
+use crate::exchange::transaction::Command;
+use crate::{exchange::queue::Queue, rpc::proto};
 
-use super::event::{Event, EventStatus};
-use super::transaction::Transaction;
+use super::event::EventStatus;
+use super::transaction::CommandResp;
 
 pub struct ExchangeReq {
-    command: Command,
+    command: proto::exchange::Command,
     resp: oneshot::Sender<ExchangeResp>,
 }
 
 impl ExchangeReq {
-    pub fn new(command: Command) -> (ExchangeReq, oneshot::Receiver<ExchangeResp>) {
+    pub fn new(
+        command: proto::exchange::Command,
+    ) -> (ExchangeReq, oneshot::Receiver<ExchangeResp>) {
         let (sender, receiver) = oneshot::channel();
         (
             ExchangeReq {
@@ -33,7 +31,7 @@ impl ExchangeReq {
 }
 
 pub struct ExchangeResp {
-    pub command_resp: CommandResp,
+    pub command_resp: proto::exchange::CommandResp,
 }
 
 #[derive(Debug, Error)]
@@ -67,8 +65,12 @@ impl Exchange {
 
     pub fn run(&mut self, mut receiver: mpsc::Receiver<ExchangeReq>) -> Result<()> {
         while let Some(msg) = receiver.blocking_recv() {
-            let resp = self.execute_command(&msg.command)?;
-            let res = msg.resp.send(ExchangeResp { command_resp: resp });
+            let com = Command::try_from(msg.command)?;
+            let com_resp = self.execute_command(&com)?;
+            let com_resp = proto::exchange::CommandResp::try_from(com_resp)?;
+            let res = msg.resp.send(ExchangeResp {
+                command_resp: com_resp,
+            });
             if let Err(_) = res {
                 error!("unabled to send response message from exchange");
             }
@@ -124,82 +126,56 @@ impl Exchange {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<CommandResp> {
-        match &command.command {
-            Some(command::Command::AddQueue(obj)) => {
-                let queue = Queue::new(obj.name.clone());
+        match command {
+            Command::AddQueue { name } => {
+                let queue = Queue::new(name.clone());
                 self.add_queue(queue)?;
-                Ok(CommandResp {
-                    command_resp: Some(command_resp::CommandResp::AddQueueResp(AddQueueResp {})),
-                })
+                Ok(CommandResp::AddQueue {})
             }
-            Some(command::Command::AddEvent(obj)) => {
-                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
+            Command::AddEvent { queue_name, event } => {
+                let queue = if let Some(queue) = self.queues.get_mut(queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
                 };
-                let event = Event::try_from(
-                    obj.event
-                        .clone()
-                        .ok_or(ExchangeError::AddEventRequestMissingEvent)?,
-                )?;
-                let event_id = queue.add_event(event);
-                Ok(CommandResp {
-                    command_resp: Some(command_resp::CommandResp::AddEventResp(AddEventResp {
-                        id: event_id,
-                    })),
-                })
+                let event_id = queue.add_event(event.clone());
+                Ok(CommandResp::AddEvent { id: event_id })
             }
-            Some(command::Command::AddEvents(obj)) => {
-                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
+            Command::AddEvents { queue_name, events } => {
+                let queue = if let Some(queue) = self.queues.get_mut(queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
                 };
-
-                let mut events: Vec<Event> = Vec::new();
-                for event in &obj.events {
-                    let event = Event::try_from(event.clone())?;
-                    events.push(event);
-                }
 
                 let event_ids: Vec<u64> = Vec::new();
                 for event in events {
                     queue.add_event(event.clone());
                 }
 
-                Ok(CommandResp {
-                    command_resp: Some(command_resp::CommandResp::AddEventsResp(AddEventsResp {
-                        ids: event_ids,
-                    })),
-                })
+                Ok(CommandResp::AddEvents { ids: event_ids })
             }
-            Some(command::Command::UpdateEventStatus(obj)) => {
-                let status = EventStatus::try_from(
-                    obj.status
-                        .ok_or(ExchangeError::UpdateEventStatusMissingStatus)?,
-                )?;
-                self.update_event_status(&obj.queue_name, &obj.event_id, status)?;
-                Ok(CommandResp {
-                    command_resp: Some(command_resp::CommandResp::UpdateEventStatusResp(
-                        UpdateEventStatusResp {},
-                    )),
-                })
+            Command::UpdateEventStatus {
+                queue_name,
+                event_id,
+                status,
+            } => {
+                self.update_event_status(queue_name, event_id, status.clone())?;
+
+                Ok(CommandResp::UpdateEventStatus {})
             }
-            Some(command::Command::CreateTransaction(obj)) => {
-                let queue = if let Some(queue) = self.queues.get_mut(&obj.queue_name) {
+            Command::CreateTransaction {
+                queue_name,
+                event_id,
+            } => {
+                let queue = if let Some(queue) = self.queues.get_mut(queue_name) {
                     queue
                 } else {
-                    return Err(ExchangeError::QueueNotFound(obj.queue_name.clone()).into());
+                    return Err(ExchangeError::QueueNotFound(queue_name.clone()).into());
                 };
 
-                Ok(CommandResp {
-                    command_resp: Some(command_resp::CommandResp::CreateTransactionResp(
-                        CreateTransactionResp { id: 0 },
-                    )),
-                })
+                Ok(CommandResp::CreateTransaction { id: 0 })
             }
-            None => Err(ExchangeError::CommandNotProvided.into()),
         }
     }
 }
