@@ -3,7 +3,8 @@ use rand::Rng;
 use tracing::{Level, info};
 
 use orkidea::rpc::proto::exchange::{
-    AddEventReq, AddQueueReq, Attribute, Event, exchange_client::ExchangeClient,
+    AddEvent, AddQueue, Attribute, Command, Event, ExecCommandReq, command,
+    exchange_client::ExchangeClient,
 };
 
 #[tokio::main]
@@ -21,8 +22,12 @@ async fn main() -> Result<()> {
     let queue_name = format!("queue_{}", queue_idx);
 
     let resp = client
-        .add_queue(tonic::Request::new(AddQueueReq {
-            name: queue_name.clone(),
+        .exec_command(tonic::Request::new(ExecCommandReq {
+            command: Some(Command {
+                command: Some(command::Command::AddQueue(AddQueue {
+                    name: queue_name.clone(),
+                })),
+            }),
         }))
         .await?;
 
@@ -30,16 +35,20 @@ async fn main() -> Result<()> {
 
     for event_idx in 0..3 {
         let resp = client
-            .add_event(tonic::Request::new(AddEventReq {
-                queue_name: queue_name.clone(),
-                event: Some(Event {
-                    id: 0,
-                    data: "my data".into(),
-                    attributes: vec![Attribute {
-                        name: "key_1".to_string(),
-                        value: "value_1".to_string(),
-                    }],
-                    status: "".to_string(),
+            .exec_command(tonic::Request::new(ExecCommandReq {
+                command: Some(Command {
+                    command: Some(command::Command::AddEvent(AddEvent {
+                        queue_name: queue_name.clone(),
+                        event: Some(Event {
+                            id: 0,
+                            data: "my data".into(),
+                            attributes: vec![Attribute {
+                                name: "key_1".to_string(),
+                                value: "value_1".to_string(),
+                            }],
+                            status: None,
+                        }),
+                    })),
                 }),
             }))
             .await?;

@@ -39,7 +39,7 @@ impl Worker {
         });
 
         // start the exchange rpc server
-        let exchange_svc = ExchangeServer::new(ExchangeImpl::new(ct.clone(), sender.clone()));
+        let exchange_svc = ExchangeServer::new(ExchangeImpl::new(sender.clone()));
         self.runtime.spawn(async move {
             let res = Server::builder()
                 .layer(
